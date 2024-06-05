@@ -81,34 +81,38 @@ class _CameraPageState extends State<CameraPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Video Recorder')),
       body: FutureBuilder<void>(
         future: _initializeControllerFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
-            return Column(
+            return Stack(
               children: [
-                AspectRatio(
-                  aspectRatio: controller.value.aspectRatio,
-                  child: CameraPreview(controller),
+                CameraPreview(controller),
+                Positioned(
+                  bottom: 20,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      FloatingActionButton(
+                        onPressed: () async {
+                          await _startVideoRecording();
+                        },
+                        child: Icon(Icons.videocam),
+                        backgroundColor: Color.fromARGB(255, 101, 221, 245),
+                      ),
+                      SizedBox(width: 20),
+                      FloatingActionButton(
+                        onPressed: () async {
+                          await _stopVideoRecording();
+                        },
+                        child: Icon(Icons.stop),
+                        backgroundColor: Color.fromARGB(255, 101, 221, 245),
+                      ),
+                    ],
+                  ),
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton(
-                      onPressed: () async {
-                        await _startVideoRecording();
-                      },
-                      child: Icon(Icons.videocam),
-                    ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        await _stopVideoRecording();
-                      },
-                      child: Icon(Icons.stop),
-                    ),
-                  ],
-                )
               ],
             );
           } else {
