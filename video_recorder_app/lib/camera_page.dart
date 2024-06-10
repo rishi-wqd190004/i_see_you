@@ -1,8 +1,10 @@
-import 'dart:io';
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:intl/intl.dart';
+import 'package:camera/camera.dart';
+import 'package:path/path.dart' as path;
+import 'dart:io';
+import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
+import 'main.dart';
 
 class CameraPage extends StatefulWidget {
   @override
@@ -10,68 +12,64 @@ class CameraPage extends StatefulWidget {
 }
 
 class _CameraPageState extends State<CameraPage> {
+  CameraController? controller;
   late List<CameraDescription> cameras;
-  late CameraController controller;
-  late Future<void> _initializeControllerFuture;
   bool isRecording = false;
-  String currentDateTime = '';
+  String? selectedDirectory;
+  late String startDateTime;
 
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
-    _updateDateTime();
-  }
-
-  void _initializeCamera() async {
-    cameras = await availableCameras();
-    controller = CameraController(cameras[0], ResolutionPreset.high);
-    _initializeControllerFuture = controller.initialize();
-    setState(() {});
-  }
-
-  void _updateDateTime() {
-    setState(() {
-      currentDateTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+    availableCameras().then((availableCameras) {
+      cameras = availableCameras;
+      if (cameras.isNotEmpty) {
+        controller = CameraController(cameras[0], ResolutionPreset.high);
+        controller?.initialize().then((_) {
+          if (!mounted) return;
+          setState(() {});
+        });
+      }
+    }).catchError((e) {
+      print('Error: $e.code\nError Message: $e.message');
     });
-    Future.delayed(Duration(seconds: 1), _updateDateTime);
   }
 
   @override
   void dispose() {
-    controller.dispose();
+    controller?.dispose();
     super.dispose();
   }
 
-  Future<String?> _startVideoRecording() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final String filePath =
-        '${directory.path}/${DateTime.now().millisecondsSinceEpoch}.mp4';
-
-    if (controller.value.isRecordingVideo) {
-      return null;
-    }
-
-    try {
-      await controller.startVideoRecording();
-      setState(() {
-        isRecording = true;
-      });
-      return filePath;
-    } catch (e) {
-      print(e);
-      return null;
-    }
-  }
-
-  Future<void> _stopVideoRecording() async {
-    if (!controller.value.isRecordingVideo) {
+  Future<void> startVideoRecording() async {
+    if (!controller!.value.isInitialized) return;
+    if (selectedDirectory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please select a directory to save the recording.')),
+      );
       return;
     }
 
+    final dir = Directory(selectedDirectory!);
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    startDateTime = DateTime.now().toIso8601String().replaceAll(':', '-');
+    final filePath = path.join(dir.path, '$startDateTime.mp4');
     try {
-      XFile videoFile = await controller.stopVideoRecording();
-      await _saveVideoLocally(videoFile);
+      await controller?.startVideoRecording();
+      setState(() {
+        isRecording = true;
+      });
+      Provider.of<PathProvider>(context, listen: false).setVideoPath(filePath);
+    } catch (e) {
+      print(e);
+    }
+  }
+
+  Future<void> stopVideoRecording() async {
+    if (!controller!.value.isRecordingVideo) return;
+    try {
+      final video = await controller?.stopVideoRecording();
+      await videoRecording(video);
       setState(() {
         isRecording = false;
       });
@@ -80,70 +78,82 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
-  Future<void> _saveVideoLocally(XFile videoFile) async {
-    final directory = await getApplicationDocumentsDirectory();
-    final String filePath =
-        '${directory.path}/${DateTime.now().millisecondsSinceEpoch}.mp4';
-    final File localFile = File(filePath);
-    await localFile.writeAsBytes(await videoFile.readAsBytes());
-    print('Video saved locally at: $filePath');
+  Future<void> videoRecording(XFile? video) async {
+    final pathProvider = Provider.of<PathProvider>(context, listen: false);
+    final filePath = pathProvider.videoPath;
+    try {
+      if (video != null) {
+        await video.saveTo(filePath);
+      }
+    } catch (e) {
+      print('Error saving video: $e');
+    }
+  }
+
+  void selectDirectory() async {
+    String? directoryPath = await FilePicker.platform.getDirectoryPath();
+    if (directoryPath != null) {
+      setState(() {
+        selectedDirectory = directoryPath;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: FutureBuilder<void>(
-        future: _initializeControllerFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-            return Stack(
-              children: [
-                CameraPreview(controller),
-                Positioned(
-                  top: 50,
-                  left: 20,
-                  child: Text(
-                    currentDateTime,
-                    style: TextStyle(
-                      color: Color.fromARGB(255, 4, 202, 252),
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      backgroundColor: Color.fromARGB(0, 0, 0, 0),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 20,
-                  left: 0,
-                  right: 0,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      FloatingActionButton(
-                        onPressed: () async {
-                          await _startVideoRecording();
-                        },
-                        child: Icon(Icons.videocam),
-                        backgroundColor: isRecording ? Colors.grey : Color.fromARGB(255, 16, 191, 244),
-                      ),
-                      SizedBox(width: 20),
-                      FloatingActionButton(
-                        onPressed: () async {
-                          await _stopVideoRecording();
-                        },
-                        child: Icon(Icons.stop),
-                        backgroundColor: isRecording ? Colors.grey : Color.fromARGB(255, 10, 236, 244),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          } else {
-            return Center(child: CircularProgressIndicator());
-          }
-        },
-      ),
+    return Stack(
+      children: <Widget>[
+        if (controller != null && controller!.value.isInitialized)
+          Positioned.fill(
+            child: AspectRatio(
+              aspectRatio: controller!.value.aspectRatio,
+              child: CameraPreview(controller!),
+            ),
+          )
+        else
+          Center(child: CircularProgressIndicator()),
+        Positioned(
+          bottom: 100.0,
+          left: 16.0,
+          right: 16.0,
+          child: ElevatedButton(
+            onPressed: selectDirectory,
+            child: Text('Select Directory'),
+          ),
+        ),
+        if (selectedDirectory != null)
+          Positioned(
+            bottom: 70.0,
+            left: 16.0,
+            right: 16.0,
+            child: Text(
+              'Selected Directory: $selectedDirectory',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        Positioned(
+          bottom: 30.0,
+          left: 16.0,
+          right: 16.0,
+          child: ElevatedButton(
+            onPressed: isRecording ? stopVideoRecording : startVideoRecording,
+            child: Text(isRecording ? 'Recording' : 'Start Recording'),
+          ),
+        ),
+        Positioned(
+          bottom: 10.0,
+          left: 16.0,
+          right: 16.0,
+          child: Consumer<PathProvider>(
+            builder: (context, pathProvider, child) {
+              return Text(
+                'Recording Path: ${pathProvider.videoPath}',
+                style: TextStyle(color: Colors.white),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
