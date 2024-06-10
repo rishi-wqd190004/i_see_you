@@ -4,6 +4,7 @@ import 'package:path/path.dart' as path;
 import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'main.dart';
 
 class CameraPage extends StatefulWidget {
@@ -42,28 +43,33 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Future<void> startVideoRecording() async {
-    if (!controller!.value.isInitialized) return;
-    if (selectedDirectory == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please select a directory to save the recording.')),
-      );
-      return;
-    }
+  if (!controller!.value.isInitialized) return;
+  if (selectedDirectory == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Please select a directory to save the recording.')),
+    );
+    return;
+  }
 
+  // Request storage permission if needed (Android 10+)
+  if (await Permission.storage.request().isGranted) {
     final dir = Directory(selectedDirectory!);
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    startDateTime = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final filePath = path.join(dir.path, '$startDateTime.mp4');
     try {
+      await dir.create(recursive: true); // Use async create method
+      startDateTime = DateTime.now().toIso8601String().replaceAll(':', '-');
+      final filePath = path.join(dir.path, '$startDateTime.mp4');
       await controller?.startVideoRecording();
       setState(() {
         isRecording = true;
       });
       Provider.of<PathProvider>(context, listen: false).setVideoPath(filePath);
     } catch (e) {
-      print(e);
+      print('Error creating directory or recording: $e');
     }
+  } else {
+    print('Storage permission denied');
   }
+}
 
   Future<void> stopVideoRecording() async {
     if (!controller!.value.isRecordingVideo) return;
