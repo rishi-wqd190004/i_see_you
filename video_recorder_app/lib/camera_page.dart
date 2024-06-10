@@ -1,7 +1,8 @@
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 
 class CameraPage extends StatefulWidget {
   @override
@@ -12,11 +13,14 @@ class _CameraPageState extends State<CameraPage> {
   late List<CameraDescription> cameras;
   late CameraController controller;
   late Future<void> _initializeControllerFuture;
+  bool isRecording = false;
+  String currentDateTime = '';
 
   @override
   void initState() {
     super.initState();
     _initializeCamera();
+    _updateDateTime();
   }
 
   void _initializeCamera() async {
@@ -24,6 +28,13 @@ class _CameraPageState extends State<CameraPage> {
     controller = CameraController(cameras[0], ResolutionPreset.high);
     _initializeControllerFuture = controller.initialize();
     setState(() {});
+  }
+
+  void _updateDateTime() {
+    setState(() {
+      currentDateTime = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+    });
+    Future.delayed(Duration(seconds: 1), _updateDateTime);
   }
 
   @override
@@ -43,6 +54,9 @@ class _CameraPageState extends State<CameraPage> {
 
     try {
       await controller.startVideoRecording();
+      setState(() {
+        isRecording = true;
+      });
       return filePath;
     } catch (e) {
       print(e);
@@ -57,25 +71,22 @@ class _CameraPageState extends State<CameraPage> {
 
     try {
       XFile videoFile = await controller.stopVideoRecording();
-      await _uploadVideoToServer(videoFile);
+      await _saveVideoLocally(videoFile);
+      setState(() {
+        isRecording = false;
+      });
     } catch (e) {
       print(e);
     }
   }
 
-  Future<void> _uploadVideoToServer(XFile videoFile) async {
-    final String url = 'http://your-server.com/upload';
-    final request = http.MultipartRequest('POST', Uri.parse(url));
-    request.files.add(await http.MultipartFile.fromPath('video', videoFile.path));
-    request.fields['date'] = DateTime.now().toIso8601String();
-
-    final response = await request.send();
-
-    if (response.statusCode == 200) {
-      print('Video uploaded successfully');
-    } else {
-      print('Video upload failed');
-    }
+  Future<void> _saveVideoLocally(XFile videoFile) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final String filePath =
+        '${directory.path}/${DateTime.now().millisecondsSinceEpoch}.mp4';
+    final File localFile = File(filePath);
+    await localFile.writeAsBytes(await videoFile.readAsBytes());
+    print('Video saved locally at: $filePath');
   }
 
   @override
@@ -89,6 +100,19 @@ class _CameraPageState extends State<CameraPage> {
               children: [
                 CameraPreview(controller),
                 Positioned(
+                  top: 50,
+                  left: 20,
+                  child: Text(
+                    currentDateTime,
+                    style: TextStyle(
+                      color: Color.fromARGB(255, 4, 202, 252),
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      backgroundColor: Color.fromARGB(0, 0, 0, 0),
+                    ),
+                  ),
+                ),
+                Positioned(
                   bottom: 20,
                   left: 0,
                   right: 0,
@@ -100,7 +124,7 @@ class _CameraPageState extends State<CameraPage> {
                           await _startVideoRecording();
                         },
                         child: Icon(Icons.videocam),
-                        backgroundColor: Color.fromARGB(255, 101, 221, 245),
+                        backgroundColor: isRecording ? Colors.grey : Color.fromARGB(255, 16, 191, 244),
                       ),
                       SizedBox(width: 20),
                       FloatingActionButton(
@@ -108,7 +132,7 @@ class _CameraPageState extends State<CameraPage> {
                           await _stopVideoRecording();
                         },
                         child: Icon(Icons.stop),
-                        backgroundColor: Color.fromARGB(255, 101, 221, 245),
+                        backgroundColor: isRecording ? Colors.grey : Color.fromARGB(255, 10, 236, 244),
                       ),
                     ],
                   ),
