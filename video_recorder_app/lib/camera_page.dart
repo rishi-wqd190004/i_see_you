@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:path/path.dart' as path;
-import 'dart:io';
-import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'main.dart';
+import 'package:gallery_saver/gallery_saver.dart';
 
 class CameraPage extends StatefulWidget {
   @override
@@ -16,24 +12,26 @@ class _CameraPageState extends State<CameraPage> {
   CameraController? controller;
   late List<CameraDescription> cameras;
   bool isRecording = false;
-  String? selectedDirectory;
-  late String startDateTime;
 
   @override
   void initState() {
     super.initState();
-    availableCameras().then((availableCameras) {
-      cameras = availableCameras;
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    try {
+      cameras = await availableCameras();
       if (cameras.isNotEmpty) {
         controller = CameraController(cameras[0], ResolutionPreset.high);
-        controller?.initialize().then((_) {
-          if (!mounted) return;
+        await controller?.initialize();
+        if (mounted) {
           setState(() {});
-        });
+        }
       }
-    }).catchError((e) {
-      print('Error: $e.code\nError Message: $e.message');
-    });
+    } catch (e) {
+      print('Error: $e');
+    }
   }
 
   @override
@@ -42,34 +40,25 @@ class _CameraPageState extends State<CameraPage> {
     super.dispose();
   }
 
-  Future<void> startVideoRecording() async {
-  if (!controller!.value.isInitialized) return;
-  if (selectedDirectory == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Please select a directory to save the recording.')),
-    );
-    return;
+  Future<void> _requestPermissions() async {
+    await [
+      Permission.camera,
+      Permission.storage,
+      Permission.photos, // For iOS
+    ].request();
   }
 
-  // Request storage permission if needed (Android 10+)
-  if (await Permission.storage.request().isGranted) {
-    final dir = Directory(selectedDirectory!);
-    try {
-      await dir.create(recursive: true); // Use async create method
-      startDateTime = DateTime.now().toIso8601String().replaceAll(':', '-');
-      final filePath = path.join(dir.path, '$startDateTime.mp4');
-      await controller?.startVideoRecording();
-      setState(() {
-        isRecording = true;
-      });
-      Provider.of<PathProvider>(context, listen: false).setVideoPath(filePath);
-    } catch (e) {
-      print('Error creating directory or recording: $e');
+  Future<void> videoRecording(XFile? video) async {
+    if (video != null) {
+      final filePath = video.path;
+      try {
+        await GallerySaver.saveVideo(filePath);
+        print('Video saved to gallery!');
+      } catch (e) {
+        print('Error saving video to gallery: $e');
+      }
     }
-  } else {
-    print('Storage permission denied');
   }
-}
 
   Future<void> stopVideoRecording() async {
     if (!controller!.value.isRecordingVideo) return;
@@ -84,82 +73,52 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
-  Future<void> videoRecording(XFile? video) async {
-    final pathProvider = Provider.of<PathProvider>(context, listen: false);
-    final filePath = pathProvider.videoPath;
-    try {
-      if (video != null) {
-        await video.saveTo(filePath);
-      }
-    } catch (e) {
-      print('Error saving video: $e');
-    }
-  }
+  Future<void> startVideoRecording() async {
+    if (!controller!.value.isInitialized || isRecording) return;
 
-  void selectDirectory() async {
-    String? directoryPath = await FilePicker.platform.getDirectoryPath();
-    if (directoryPath != null) {
-      setState(() {
-        selectedDirectory = directoryPath;
-      });
+    await _requestPermissions();
+    final cameraStatus = await Permission.camera.status;
+    final storageStatus = await Permission.storage.status;
+
+    if (cameraStatus.isGranted && storageStatus.isGranted) {
+      try {
+        await controller?.startVideoRecording();
+        setState(() {
+          isRecording = true;
+        });
+      } catch (e) {
+        print('Error starting video recording: $e');
+      }
+    } else {
+      print('Camera or storage permission denied');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: <Widget>[
-        if (controller != null && controller!.value.isInitialized)
-          Positioned.fill(
-            child: AspectRatio(
-              aspectRatio: controller!.value.aspectRatio,
-              child: CameraPreview(controller!),
-            ),
-          )
-        else
-          Center(child: CircularProgressIndicator()),
-        Positioned(
-          bottom: 100.0,
-          left: 16.0,
-          right: 16.0,
-          child: ElevatedButton(
-            onPressed: selectDirectory,
-            child: Text('Select Directory'),
-          ),
-        ),
-        if (selectedDirectory != null)
+    return Scaffold(
+      body: Stack(
+        children: <Widget>[
+          if (controller != null && controller!.value.isInitialized)
+            Positioned.fill(
+              child: AspectRatio(
+                aspectRatio: controller!.value.aspectRatio,
+                child: CameraPreview(controller!),
+              ),
+            )
+          else
+            Center(child: CircularProgressIndicator()),
           Positioned(
-            bottom: 70.0,
+            bottom: 30.0,
             left: 16.0,
             right: 16.0,
-            child: Text(
-              'Selected Directory: $selectedDirectory',
-              style: TextStyle(color: Colors.white),
+            child: ElevatedButton(
+              onPressed: isRecording ? stopVideoRecording : startVideoRecording,
+              child: Text(isRecording ? 'Stop Recording' : 'Start Recording'),
             ),
           ),
-        Positioned(
-          bottom: 30.0,
-          left: 16.0,
-          right: 16.0,
-          child: ElevatedButton(
-            onPressed: isRecording ? stopVideoRecording : startVideoRecording,
-            child: Text(isRecording ? 'Recording' : 'Start Recording'),
-          ),
-        ),
-        Positioned(
-          bottom: 10.0,
-          left: 16.0,
-          right: 16.0,
-          child: Consumer<PathProvider>(
-            builder: (context, pathProvider, child) {
-              return Text(
-                'Recording Path: ${pathProvider.videoPath}',
-                style: TextStyle(color: Colors.white),
-              );
-            },
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

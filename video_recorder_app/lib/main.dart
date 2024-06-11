@@ -1,33 +1,19 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'camera_page.dart';
 import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'camera_page.dart';
+
 void main() => runApp(MyApp());
-
-class PathProvider with ChangeNotifier {
-  String _videoPath = '';
-
-  String get videoPath => _videoPath;
-
-  void setVideoPath(String path) {
-    _videoPath = path;
-    notifyListeners();
-  }
-}
 
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => PathProvider(),
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-        ),
-        home: MyHomePage(),
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
       ),
+      home: MyHomePage(),
     );
   }
 }
